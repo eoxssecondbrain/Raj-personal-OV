@@ -42,7 +42,11 @@ def _slug(filename, n=40):
 def write_needs_review(raw_row, decision_result):
     REVIEW_DIR.mkdir(parents=True, exist_ok=True)
     hash_ = raw_row["hash"]
-    slug = _slug(raw_row["source_filename"])
+    # Content-derived slug (what the doc is ABOUT) rather than the source
+    # filename, so an operator scanning _needs-review/ can tell what's inside
+    # without opening every file. Falls back to filename if the model somehow
+    # omitted it (schema marks it required, but don't hard-fail on that alone).
+    slug = _slug(decision_result.get("topic_slug") or raw_row["source_filename"])
     out_path = REVIEW_DIR / f"{hash_}-{slug}.md"
 
     raw_content = json.loads(Path(raw_row["raw_path"]).read_text(encoding="utf-8"))["content"] or ""

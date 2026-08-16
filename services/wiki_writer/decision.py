@@ -27,6 +27,10 @@ DECISION_TOOL = {
                 "type": "string",
                 "description": "Vault-relative path this content targets, e.g. vault/04-finance/insurance.md",
             },
+            "topic_slug": {
+                "type": "string",
+                "description": "Short kebab-case slug describing what this document is ABOUT (e.g. 'silicon-valley-bank-statement-feb-2021'), not the source filename. Used to name the review file so an operator scanning _needs-review/ can tell what's inside without opening it. 3-8 words.",
+            },
             "draft_content": {
                 "type": "string",
                 "description": "Full markdown content to write (full page for CONFIDENT_UPDATE/new page, or the section to append for NEW_INFO append case).",
@@ -40,7 +44,7 @@ DECISION_TOOL = {
                 "enum": ["high", "medium", "low"],
             },
         },
-        "required": ["outcome", "target_page", "draft_content", "reason", "confidence"],
+        "required": ["outcome", "target_page", "topic_slug", "draft_content", "reason", "confidence"],
     },
 }
 
