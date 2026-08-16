@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from common import db, lock
 from common.batch import BatchLimiter
+from common.paths import RAW_DIR, DB_PATH, bootstrap_git_repo
 from ingestion import drive_client
 from ingestion.extractors import get_extractor, ExtractionError
 
@@ -27,9 +28,6 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("ingestion")
 
 JOB_NAME = "ingestion"
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-RAW_DIR = REPO_ROOT / "raw"
-DB_PATH = REPO_ROOT / "state.db"
 
 MAX_ITEMS_PER_RUN = int(os.environ.get("INGESTION_MAX_ITEMS", "20"))
 MAX_SECONDS_PER_RUN = int(os.environ.get("INGESTION_MAX_SECONDS", "600"))  # 10 min
@@ -111,6 +109,7 @@ def run():
     if not DRIVE_FOLDER_ID:
         raise RuntimeError("DRIVE_FOLDER_ID env var not set")
 
+    bootstrap_git_repo()
     db.init_db(DB_PATH)
     status = "success"
     processed = 0
@@ -145,9 +144,9 @@ def run():
                 conn, JOB_NAME, status, datetime.now(timezone.utc).isoformat(), processed, detail
             )
 
-    if status == "failure":
-        sys.exit(1)
+    return status
 
 
 if __name__ == "__main__":
-    run()
+    if run() == "failure":
+        sys.exit(1)

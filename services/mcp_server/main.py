@@ -1,23 +1,33 @@
-"""mcp_server: vault/ -> ChatGPT
+"""mcp_server: vault/ (and raw/) -> ChatGPT
 
-Exposes exactly three tools, per SPEC.md Section 3:
-  search_vault(query), read_page(path), list_pages(section)
+Exposes these tools, per SPEC.md Section 3 plus the raw-file read access
+added for the combined-service topology (see MANUAL_SETUP.md Section 5):
+  search_vault(query), read_page(path), list_pages(section),
+  list_raw_files(), read_raw_file(hash)
 
-Reads directly off vault/ on disk at query time -- no DB dependency, so a
-state.db issue never breaks Raj's ability to query.
+Reads directly off vault/ and raw/ on disk at query time -- no DB dependency
+for the read path itself, so a state.db issue never breaks Raj's ability to
+query (list_raw_files does read state.db for filenames/timestamps, but falls
+back to a plain directory listing if that fails).
 
 Deliberately does NOT expose any review/triage/pending-review tool. Raj is a
 pure end-user of the vault; all _needs-review/ triage is operator-only via
 services/wiki_writer/resolve.py (see SPEC.md Section 5).
 """
+import json
 import os
 import re
+import sqlite3
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mcp.server.fastmcp import FastMCP
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-VAULT_DIR = REPO_ROOT / "vault"
+from common.paths import DATA_ROOT, VAULT_DIR, RAW_DIR, DB_PATH
+
+REPO_ROOT = DATA_ROOT
 REVIEW_DIR_NAME = "_needs-review"
 
 # Long random token in the URL path (SPEC.md Section 13) -- set via Render env var.
@@ -96,6 +106,41 @@ def list_pages(section: str = "") -> list[str]:
             continue
         pages.append(str(md_path.relative_to(REPO_ROOT)))
     return sorted(pages)
+
+
+@mcp.tool()
+def list_raw_files() -> list[dict]:
+    """List extracted source documents (the raw/ store), with source filename,
+    extraction status, and hash. Use read_raw_file(hash) to pull one's full content."""
+    results = []
+    if DB_PATH.exists():
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT hash, source_filename, extraction_status, extracted_at FROM raw_files ORDER BY extracted_at DESC"
+            ).fetchall()
+            conn.close()
+            return [dict(r) for r in rows]
+        except sqlite3.Error:
+            pass  # fall through to directory listing below
+
+    for raw_path in RAW_DIR.glob("*.json"):
+        results.append({"hash": raw_path.stem, "source_filename": None,
+                         "extraction_status": None, "extracted_at": None})
+    return results
+
+
+@mcp.tool()
+def read_raw_file(hash: str) -> dict:
+    """Read the full extracted content (and metadata) of one source document by its hash,
+    as recorded in raw/<hash>.json. Use list_raw_files() to find hashes."""
+    if not re.fullmatch(r"[a-f0-9]{16,128}", hash):
+        raise ValueError("invalid hash format")
+    raw_path = RAW_DIR / f"{hash}.json"
+    if not raw_path.exists():
+        raise ValueError(f"no raw file found for hash {hash}")
+    return json.loads(raw_path.read_text(encoding="utf-8", errors="ignore"))
 
 
 class RateLimitMiddleware:

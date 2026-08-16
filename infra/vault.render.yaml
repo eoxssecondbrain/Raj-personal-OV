@@ -1,0 +1,50 @@
+# Render web service spec for the combined vault service.
+#
+# Runs the MCP HTTP server (always-on, reachable by ChatGPT) and the
+# ingestion + wiki_writer schedulers in one process, on one persistent disk.
+# See MANUAL_SETUP.md Section 5 for why this is combined rather than three
+# separate services (Render disks are 1:1 per service, and mcp_server needs
+# read access to raw/ in addition to vault/, not just vault/ alone).
+services:
+  - type: web
+    name: raj-vault
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r services/combined/requirements.txt"
+    startCommand: "python services/combined/main.py"
+    disk:
+      name: raj-vault-disk
+      mountPath: /var/data
+      sizeGB: 5
+    envVars:
+      - key: VAULT_DATA_ROOT
+        value: /var/data   # MUST match disk.mountPath above -- this is what
+                            # makes vault/, raw/, state.db, and the git
+                            # working tree persist across redeploys instead
+                            # of living in the ephemeral code checkout
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: DRIVE_FOLDER_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: GIT_REMOTE_URL
+        sync: false
+      - key: MCP_URL_TOKEN
+        sync: false
+      - key: PORT
+        value: "8000"
+      - key: INGESTION_MAX_ITEMS
+        value: "20"
+      - key: INGESTION_MAX_SECONDS
+        value: "600"
+      - key: WIKI_WRITER_MAX_ITEMS
+        value: "20"
+      - key: WIKI_WRITER_MAX_SECONDS
+        value: "600"
+      - key: INGESTION_INTERVAL_MINUTES
+        value: "240"
+      - key: WIKI_WRITER_INTERVAL_MINUTES
+        value: "240"
+      - key: WIKI_WRITER_OFFSET_MINUTES
+        value: "30"

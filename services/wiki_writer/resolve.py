@@ -20,11 +20,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from common import db
+from common.paths import DATA_ROOT, VAULT_DIR, DB_PATH
 from wiki_writer import git_ops
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-REVIEW_DIR = REPO_ROOT / "vault" / "_needs-review"
-DB_PATH = REPO_ROOT / "state.db"
+REPO_ROOT = DATA_ROOT
+REVIEW_DIR = VAULT_DIR / "_needs-review"
 
 FRONTMATTER_RE = re.compile(r"^---\n(.*?)\n---\n\n", re.DOTALL)
 DRAFT_SECTION_RE = re.compile(r"## What the agent would have done\n(.*)", re.DOTALL)

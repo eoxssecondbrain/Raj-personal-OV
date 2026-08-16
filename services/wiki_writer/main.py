@@ -18,16 +18,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from common import db, lock
 from common.batch import BatchLimiter
+from common.paths import DATA_ROOT, VAULT_DIR, DB_PATH, bootstrap_git_repo
 from wiki_writer import decision, git_ops
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("wiki_writer")
 
 JOB_NAME = "wiki_writer"
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-VAULT_DIR = REPO_ROOT / "vault"
+REPO_ROOT = DATA_ROOT  # the git working tree wiki_writer commits/pushes against
 REVIEW_DIR = VAULT_DIR / "_needs-review"
-DB_PATH = REPO_ROOT / "state.db"
 
 MAX_ITEMS_PER_RUN = int(os.environ.get("WIKI_WRITER_MAX_ITEMS", "20"))
 MAX_SECONDS_PER_RUN = int(os.environ.get("WIKI_WRITER_MAX_SECONDS", "600"))  # 10 min
@@ -142,6 +141,7 @@ def process_entry(raw_row, conn):
 
 
 def run():
+    bootstrap_git_repo()
     db.init_db(DB_PATH)
     status = "success"
     processed = 0
@@ -187,9 +187,9 @@ def run():
                 conn, JOB_NAME, status, datetime.now(timezone.utc).isoformat(), processed, detail
             )
 
-    if status == "failure":
-        sys.exit(1)
+    return status
 
 
 if __name__ == "__main__":
-    run()
+    if run() == "failure":
+        sys.exit(1)
