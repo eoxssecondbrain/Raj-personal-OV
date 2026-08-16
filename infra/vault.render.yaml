@@ -49,7 +49,10 @@ services:
                        # any lower starts to matter for Drive API rate limits and
                        # gives the lock/batch logic no breathing room between runs
       - key: WIKI_WRITER_INTERVAL_MINUTES
-        value: "2"
+        value: "120"  # deliberately much slower than ingestion -- wiki_writer makes
+                       # real filing decisions (overwrite/append/flag) and each run
+                       # costs a model call per entry, so this stays on a 2h cadence
+                       # even though ingestion now polls every 2 min
       - key: WIKI_WRITER_OFFSET_MINUTES
-        value: "1"    # only affects wiki_writer's FIRST run after boot; after that
+        value: "10"   # only affects wiki_writer's FIRST run after boot; after that
                        # each job repeats on its own fixed interval independently
