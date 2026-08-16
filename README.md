@@ -1,7 +1,8 @@
 # Raj Personal Vault
 
-Personal, single-user second-brain vault. See `SPEC.md` (parent directory) for
-the full authoritative spec. This README covers setup and operation.
+Personal, single-user second-brain vault deployed on Render. See `SPEC.md`
+(parent directory) for the full authoritative spec. This README covers setup
+and operation.
 
 **For the complete step-by-step manual setup (accounts, credentials,
 dashboard clicks), see `MANUAL_SETUP.md`.** This README is the reference
