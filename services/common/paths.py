@@ -44,6 +44,17 @@ def bootstrap_git_repo():
     """
     if DATA_ROOT == REPO_ROOT:
         return
+
+    # Render's persistent disk is owned by a different UID than the process,
+    # which trips git's "dubious ownership" protection on every git command --
+    # not just the initial clone. Must run on every boot (not just when
+    # bootstrapping a fresh disk), since this is a property of the mount, not
+    # of whether the repo has already been cloned.
+    subprocess.run(
+        ["git", "config", "--global", "--add", "safe.directory", str(DATA_ROOT)],
+        check=True,
+    )
+
     if (DATA_ROOT / ".git").exists():
         return
 
