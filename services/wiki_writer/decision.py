@@ -78,8 +78,16 @@ def find_candidate_pages(vault_dir, source_filename, content, limit=5):
 
 def decide(raw_entry_content, source_filename, candidate_pages, vault_dir):
     """Returns dict matching DECISION_TOOL schema."""
+    # Comfortably covers long bank statements, multi-page contracts, etc.
+    # while staying well under Claude Sonnet 5's context window with margin
+    # to spare. Previously 8000/1500 chars -- too low, silently truncated
+    # documents mid-transaction-table and produced pages the model itself
+    # flagged as having unexplained balance gaps from the missing tail.
+    CONTENT_CHAR_LIMIT = 60_000
+    CANDIDATE_CHAR_LIMIT = 20_000
+
     candidate_text = "\n".join(
-        f"- {p}: {(vault_dir.parent / p).read_text(encoding='utf-8')[:1500]}"
+        f"- {p}: {(vault_dir.parent / p).read_text(encoding='utf-8')[:CANDIDATE_CHAR_LIMIT]}"
         for p in candidate_pages
         if (vault_dir.parent / p).exists()
     ) or "(no candidate pages found)"
@@ -88,7 +96,7 @@ def decide(raw_entry_content, source_filename, candidate_pages, vault_dir):
 
 Raw extracted content:
 ---
-{raw_entry_content[:8000]}
+{raw_entry_content[:CONTENT_CHAR_LIMIT]}
 ---
 
 Candidate existing pages that might relate to this content:
@@ -99,7 +107,7 @@ Decide the outcome and produce your draft."""
     client = _client()
     resp = client.messages.create(
         model=MODEL,
-        max_tokens=4000,
+        max_tokens=16000,
         system=SYSTEM_PROMPT,
         tools=[DECISION_TOOL],
         tool_choice={"type": "tool", "name": "file_decision"},
