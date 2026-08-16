@@ -43,8 +43,13 @@ services:
       - key: WIKI_WRITER_MAX_SECONDS
         value: "600"
       - key: INGESTION_INTERVAL_MINUTES
-        value: "240"
+        value: "2"    # polling Drive is cheap (one list call) and hash-dedup means
+                       # already-seen files are never reprocessed/re-billed, so this
+                       # can safely be aggressive -- 2 min is the practical floor,
+                       # any lower starts to matter for Drive API rate limits and
+                       # gives the lock/batch logic no breathing room between runs
       - key: WIKI_WRITER_INTERVAL_MINUTES
-        value: "240"
+        value: "2"
       - key: WIKI_WRITER_OFFSET_MINUTES
-        value: "30"
+        value: "1"    # only affects wiki_writer's FIRST run after boot; after that
+                       # each job repeats on its own fixed interval independently
