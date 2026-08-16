@@ -18,6 +18,16 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# Local dev convenience: load repo_root/.env if present. No-op on Render
+# (no .env file is deployed there; env vars are set directly on the service).
+# Plain `source .env` in a shell breaks on the multi-line/JSON-valued vars
+# here (GOOGLE_SERVICE_ACCOUNT_JSON), so python-dotenv is the supported path.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(REPO_ROOT / ".env")
+except ImportError:
+    pass
+
 DATA_ROOT = Path(os.environ.get("VAULT_DATA_ROOT", str(REPO_ROOT)))
 
 VAULT_DIR = DATA_ROOT / "vault"
