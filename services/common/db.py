@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS raw_files (
     extraction_error TEXT,
     wikified_at TIMESTAMP,                               -- NULL until wiki_writer processes it
     target_pages TEXT,                                   -- JSON array of vault paths it fed into
-    review_resolution TEXT                                -- NULL | rejected | approved (set by resolve.py)
+    review_resolution TEXT,                               -- NULL | rejected | approved (set by resolve.py)
+    git_pushed_at TIMESTAMP                               -- NULL until raw/<hash>.json reached GitHub
 );
 
 CREATE TABLE IF NOT EXISTS locks (
@@ -41,11 +42,22 @@ def get_connection(db_path):
     return conn
 
 
+def _ensure_column(conn, table, column, coltype):
+    cols = [row["name"] for row in conn.execute(f"PRAGMA table_info({table})")]
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
 def init_db(db_path):
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = get_connection(db_path)
     try:
         conn.executescript(SCHEMA)
+        # Migrate existing databases created before git_pushed_at existed --
+        # CREATE TABLE IF NOT EXISTS above is a no-op on an existing table,
+        # so the column has to be added explicitly for pre-existing state.db
+        # files. Existing rows get NULL, which correctly means "needs retry."
+        _ensure_column(conn, "raw_files", "git_pushed_at", "TIMESTAMP")
         conn.commit()
     finally:
         conn.close()
@@ -136,6 +148,35 @@ def get_unwikified(conn, limit):
         (limit,),
     ).fetchall()
     return rows
+
+
+def get_unpushed_raw_files(conn, limit):
+    """Successfully extracted files whose raw/<hash>.json hasn't reached
+    GitHub yet -- either brand new from this run, or left over from a prior
+    run whose commit/push failed (e.g. the git ownership bug). Retried every
+    run until push actually succeeds, decoupled from extraction_status so a
+    git failure never permanently strands a file."""
+    rows = conn.execute(
+        """
+        SELECT * FROM raw_files
+        WHERE extraction_status = 'ok' AND git_pushed_at IS NULL
+        ORDER BY extracted_at ASC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return rows
+
+
+def mark_git_pushed(conn, hashes, pushed_at):
+    if not hashes:
+        return
+    placeholders = ",".join("?" * len(hashes))
+    conn.execute(
+        f"UPDATE raw_files SET git_pushed_at = ? WHERE hash IN ({placeholders})",
+        (pushed_at, *hashes),
+    )
+    conn.commit()
 
 
 def mark_wikified(conn, hash_, wikified_at, target_pages):

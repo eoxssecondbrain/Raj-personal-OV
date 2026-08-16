@@ -133,31 +133,43 @@ def run():
                 log.info("found %d files in Drive folder", len(files))
 
                 limiter = BatchLimiter(MAX_ITEMS_PER_RUN, MAX_SECONDS_PER_RUN)
-                written_paths = []
                 for f in files:
                     if not limiter.should_continue():
                         log.info("batch limit reached, checkpointing and exiting")
                         break
                     raw_path = process_file(service, f, conn)
                     if raw_path is not None:
-                        written_paths.append(str(raw_path))
                         limiter.record()
                         processed += 1
 
-                if written_paths and GIT_REMOTE_URL:
+                # Query (not the in-run written list) so this also retries any
+                # entries from a prior run whose push failed -- e.g. the git
+                # "dubious ownership" bug stranded successfully-extracted files
+                # that were never pushed. Decoupled from extraction_status so a
+                # git failure never permanently strands a file.
+                pending = db.get_unpushed_raw_files(conn, limit=MAX_ITEMS_PER_RUN * 5)
+                if pending and GIT_REMOTE_URL:
+                    paths = [row["raw_path"] for row in pending]
                     try:
                         committed = git_ops.commit(
                             REPO_ROOT,
-                            f"raw: {len(written_paths)} file(s) extracted",
-                            written_paths,
+                            f"raw: {len(paths)} file(s) extracted",
+                            paths,
                         )
                         if committed:
                             git_ops.push(REPO_ROOT)
-                            log.info("committed + pushed %d raw file(s) to remote", len(written_paths))
+                        # Mark pushed even if there was nothing new to commit
+                        # (committed=False, already up to date) -- either way
+                        # these files are now confirmed on the remote.
+                        db.mark_git_pushed(
+                            conn, [row["hash"] for row in pending],
+                            datetime.now(timezone.utc).isoformat(),
+                        )
+                        log.info("committed + pushed %d raw file(s) to remote", len(paths))
                     except Exception:
                         # Local raw/ writes already succeeded and state.db already
                         # reflects them -- a commit/push failure here shouldn't fail
-                        # the run; the next run's push will catch up on the backlog.
+                        # the run; git_pushed_at stays NULL so the next run retries.
                         log.exception("commit/push of raw/ failed, will retry next run")
         except lock.LockHeldError as e:
             status = "skipped"
