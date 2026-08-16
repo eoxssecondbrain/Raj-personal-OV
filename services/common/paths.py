@@ -55,6 +55,19 @@ def bootstrap_git_repo():
         check=True,
     )
 
+    # Fresh Render containers have no git identity configured at all, which
+    # makes `git commit` fail outright ("Author identity unknown"). Set once
+    # per boot -- --global so it covers both ingestion's and wiki_writer's
+    # commits, since both run in the same process/container.
+    subprocess.run(
+        ["git", "config", "--global", "user.email", "raj-vault-bot@render.local"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "config", "--global", "user.name", "Raj Vault Bot"],
+        check=True,
+    )
+
     if (DATA_ROOT / ".git").exists():
         return
 
