@@ -37,8 +37,11 @@ def push(repo_root, remote="origin", branch="main"):
     """
     subprocess.run(["git", "fetch", remote, branch], cwd=repo_root, check=True)
 
+    # --autostash: a stray dirty/untracked file left in the working tree
+    # (e.g. state.db's WAL file mid-write, a __pycache__ artifact) must not
+    # block the rebase outright -- git stashes it, rebases, then restores it.
     result = subprocess.run(
-        ["git", "rebase", f"{remote}/{branch}"],
+        ["git", "rebase", "--autostash", f"{remote}/{branch}"],
         cwd=repo_root,
         capture_output=True,
         text=True,
