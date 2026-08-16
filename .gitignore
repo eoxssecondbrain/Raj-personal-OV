@@ -6,4 +6,6 @@ state.db
 state.db-wal
 state.db-shm
 *.json.key
+*-service-account.json
+raj-vault-service-account.json
 .env
