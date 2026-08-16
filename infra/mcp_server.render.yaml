@@ -1,0 +1,17 @@
+# Render web service spec for mcp_server -- always-on, reachable by ChatGPT.
+services:
+  - type: web
+    name: raj-vault-mcp
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r services/mcp_server/requirements.txt"
+    startCommand: "python services/mcp_server/main.py"
+    disk:
+      name: raj-vault-disk
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: MCP_URL_TOKEN     # long random token; the connector URL is
+        sync: false            # https://<host>/<MCP_URL_TOKEN>/mcp
+      - key: PORT
+        value: "8000"

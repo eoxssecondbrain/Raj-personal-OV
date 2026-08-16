@@ -1,0 +1,26 @@
+# Render cron job spec for the ingestion service.
+# Deploy: create a new "Cron Job" on Render, point it at this repo, use this
+# spec (or paste the equivalent settings into the dashboard / render.yaml).
+services:
+  - type: cron
+    name: raj-vault-ingestion
+    runtime: python
+    plan: starter
+    schedule: "0 */4 * * *"   # every 4 hours; adjust to taste
+    buildCommand: "pip install -r services/ingestion/requirements.txt"
+    startCommand: "python services/ingestion/main.py"
+    disk:
+      name: raj-vault-disk
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false   # set as a Render secret, never committed
+      - key: DRIVE_FOLDER_ID
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: INGESTION_MAX_ITEMS
+        value: "20"
+      - key: INGESTION_MAX_SECONDS
+        value: "600"

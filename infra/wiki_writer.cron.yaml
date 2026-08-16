@@ -1,0 +1,24 @@
+# Render cron job spec for the wiki_writer service.
+# Runs after ingestion has had a chance to populate raw/ -- stagger the
+# schedule relative to ingestion.cron.yaml.
+services:
+  - type: cron
+    name: raj-vault-wiki-writer
+    runtime: python
+    plan: starter
+    schedule: "30 */4 * * *"   # 30 min after each ingestion run
+    buildCommand: "pip install -r services/wiki_writer/requirements.txt"
+    startCommand: "python services/wiki_writer/main.py"
+    disk:
+      name: raj-vault-disk
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: WIKI_WRITER_MAX_ITEMS
+        value: "20"
+      - key: WIKI_WRITER_MAX_SECONDS
+        value: "600"
+      - key: GIT_REMOTE_URL   # private GitHub remote, e.g. https://<token>@github.com/<you>/raj-personal-vault.git
+        sync: false
