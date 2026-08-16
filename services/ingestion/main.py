@@ -69,7 +69,7 @@ def process_file(service, drive_file, conn):
         drive_client.download_file(service, file_id, str(local_path))
         hash_ = hash_bytes(local_path)
 
-        if db.hash_exists(conn, hash_):
+        if db.should_skip_ingestion(conn, hash_):
             log.info("skip (already processed): %s", name)
             return None
 

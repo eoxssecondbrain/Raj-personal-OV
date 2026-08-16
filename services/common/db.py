@@ -97,9 +97,27 @@ def upsert_raw_file(conn, hash_, source_filename, drive_file_id, extracted_at,
     conn.commit()
 
 
-def hash_exists(conn, hash_):
-    row = conn.execute("SELECT 1 FROM raw_files WHERE hash = ?", (hash_,)).fetchone()
-    return row is not None
+def should_skip_ingestion(conn, hash_):
+    """True if this file has already been successfully extracted, OR has
+    already failed AND wiki_writer has already flagged that failure to
+    _needs-review/ (wikified_at is set even for failed entries -- see
+    wiki_writer.main.process_entry). A failed extraction that wiki_writer
+    hasn't reached yet is retried on the next ingestion run instead of being
+    stuck forever -- e.g. a bug in an extractor getting fixed shouldn't
+    require manually clearing state.db to reprocess. Once wiki_writer has
+    flagged it, the operator's review file is authoritative; ingestion must
+    not silently retry underneath it.
+    """
+    row = conn.execute(
+        "SELECT extraction_status, wikified_at FROM raw_files WHERE hash = ?", (hash_,)
+    ).fetchone()
+    if row is None:
+        return False
+    if row["extraction_status"] == "ok":
+        return True
+    if row["extraction_status"] == "failed" and row["wikified_at"] is not None:
+        return True
+    return False
 
 
 def get_unwikified(conn, limit):
