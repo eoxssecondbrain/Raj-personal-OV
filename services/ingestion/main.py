@@ -151,16 +151,22 @@ def run():
                 if pending and GIT_REMOTE_URL:
                     paths = [row["raw_path"] for row in pending]
                     try:
-                        committed = git_ops.commit(
+                        # commit() returning False only means "nothing NEW to
+                        # stage" -- it does NOT mean the remote has it. A prior
+                        # run's commit can have succeeded locally while its own
+                        # push failed, leaving a real local commit sitting
+                        # unpushed; the file is already tracked, so a second
+                        # `git add` stages nothing and commit() correctly
+                        # returns False. push() must still run every time
+                        # regardless of committed, or exactly that already-
+                        # committed-but-never-pushed case gets silently marked
+                        # as done without ever reaching GitHub.
+                        git_ops.commit(
                             REPO_ROOT,
                             f"raw: {len(paths)} file(s) extracted",
                             paths,
                         )
-                        if committed:
-                            git_ops.push(REPO_ROOT)
-                        # Mark pushed even if there was nothing new to commit
-                        # (committed=False, already up to date) -- either way
-                        # these files are now confirmed on the remote.
+                        git_ops.push(REPO_ROOT)
                         db.mark_git_pushed(
                             conn, [row["hash"] for row in pending],
                             datetime.now(timezone.utc).isoformat(),

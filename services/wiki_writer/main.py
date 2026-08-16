@@ -180,13 +180,17 @@ def run():
                 if pending and GIT_REMOTE_URL:
                     paths = [json.loads(row["target_pages"])[0] for row in pending]
                     try:
-                        committed = git_ops.commit(
+                        # See ingestion/main.py's identical fix: commit()
+                        # returning False only means nothing new to stage, NOT
+                        # that the remote already has it -- a prior run's local
+                        # commit can have succeeded while its push failed.
+                        # push() must always run, not just when committed=True.
+                        git_ops.commit(
                             REPO_ROOT,
                             f"wiki_writer: {len(paths)} entries",
                             paths,
                         )
-                        if committed:
-                            git_ops.push(REPO_ROOT)
+                        git_ops.push(REPO_ROOT)
                         db.mark_wiki_git_pushed(
                             conn, [row["hash"] for row in pending],
                             datetime.now(timezone.utc).isoformat(),
