@@ -5,6 +5,12 @@ in state.db with a matching hash, runs the matching extractor, and writes
 the result (or the failure) to raw/<hash>.json. Never silently drops a file
 that fails extraction -- see SPEC.md Section 8.
 
+Commits + pushes raw/ writes on its own cycle (independent of wiki_writer's
+vault/ commits) so extracted content reaches GitHub quickly even when
+wiki_writer runs on a much slower interval -- this lets you `git pull`
+locally and inspect exactly what was extracted for debugging, without
+waiting for wiki_writer to file it into the vault.
+
 Bounded batch per run + lock backstop -- see SPEC.md Section 7.
 """
 import hashlib
@@ -18,9 +24,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from common import db, lock
+from common import db, lock, git_ops
 from common.batch import BatchLimiter
-from common.paths import RAW_DIR, DB_PATH, bootstrap_git_repo
+from common.paths import DATA_ROOT, RAW_DIR, DB_PATH, bootstrap_git_repo
 from ingestion import drive_client
 from ingestion.extractors import get_extractor, ExtractionError
 
@@ -28,10 +34,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("ingestion")
 
 JOB_NAME = "ingestion"
+REPO_ROOT = DATA_ROOT  # the git working tree ingestion commits/pushes against
 
 MAX_ITEMS_PER_RUN = int(os.environ.get("INGESTION_MAX_ITEMS", "20"))
 MAX_SECONDS_PER_RUN = int(os.environ.get("INGESTION_MAX_SECONDS", "600"))  # 10 min
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID")
+GIT_REMOTE_URL = os.environ.get("GIT_REMOTE_URL")  # e.g. https://<token>@github.com/<you>/raj-personal-vault.git
 
 
 def hash_bytes(path):
@@ -50,6 +58,8 @@ def write_raw(hash_, payload):
 
 
 def process_file(service, drive_file, conn):
+    """Returns the raw/<hash>.json path written, or None if the file was
+    already processed (nothing new to commit)."""
     name = drive_file["name"]
     file_id = drive_file["id"]
     ext = Path(name).suffix.lower()
@@ -61,7 +71,7 @@ def process_file(service, drive_file, conn):
 
         if db.hash_exists(conn, hash_):
             log.info("skip (already processed): %s", name)
-            return False
+            return None
 
         now = datetime.now(timezone.utc).isoformat()
 
@@ -102,7 +112,7 @@ def process_file(service, drive_file, conn):
             db.upsert_raw_file(conn, hash_, name, file_id, now, str(raw_path), "failed", str(e))
             log.warning("extraction failed: %s (%s)", name, e)
 
-        return True
+        return raw_path
 
 
 def run():
@@ -123,14 +133,32 @@ def run():
                 log.info("found %d files in Drive folder", len(files))
 
                 limiter = BatchLimiter(MAX_ITEMS_PER_RUN, MAX_SECONDS_PER_RUN)
+                written_paths = []
                 for f in files:
                     if not limiter.should_continue():
                         log.info("batch limit reached, checkpointing and exiting")
                         break
-                    did_work = process_file(service, f, conn)
-                    if did_work:
+                    raw_path = process_file(service, f, conn)
+                    if raw_path is not None:
+                        written_paths.append(str(raw_path))
                         limiter.record()
                         processed += 1
+
+                if written_paths and GIT_REMOTE_URL:
+                    try:
+                        committed = git_ops.commit(
+                            REPO_ROOT,
+                            f"raw: {len(written_paths)} file(s) extracted",
+                            written_paths,
+                        )
+                        if committed:
+                            git_ops.push(REPO_ROOT)
+                            log.info("committed + pushed %d raw file(s) to remote", len(written_paths))
+                    except Exception:
+                        # Local raw/ writes already succeeded and state.db already
+                        # reflects them -- a commit/push failure here shouldn't fail
+                        # the run; the next run's push will catch up on the backlog.
+                        log.exception("commit/push of raw/ failed, will retry next run")
         except lock.LockHeldError as e:
             status = "skipped"
             detail = str(e)

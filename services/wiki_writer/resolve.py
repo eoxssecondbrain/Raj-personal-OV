@@ -19,9 +19,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from common import db
+from common import db, git_ops
 from common.paths import DATA_ROOT, VAULT_DIR, DB_PATH
-from wiki_writer import git_ops
 
 REPO_ROOT = DATA_ROOT
 REVIEW_DIR = VAULT_DIR / "_needs-review"

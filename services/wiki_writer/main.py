@@ -16,10 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from common import db, lock
+from common import db, lock, git_ops
 from common.batch import BatchLimiter
 from common.paths import DATA_ROOT, VAULT_DIR, DB_PATH, bootstrap_git_repo
-from wiki_writer import decision, git_ops
+from wiki_writer import decision
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("wiki_writer")

@@ -1,4 +1,7 @@
-"""Thin wrapper around git commits for the vault. Commit history is the audit trail."""
+"""Thin wrapper around git commits for the vault working tree. Shared by
+ingestion (commits raw/) and wiki_writer (commits vault/) -- commit history
+doubles as the audit trail for both.
+"""
 import subprocess
 
 

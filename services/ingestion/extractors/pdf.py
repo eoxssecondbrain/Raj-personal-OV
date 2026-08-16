@@ -4,18 +4,17 @@ from . import ExtractionError
 
 
 def extract(file_path):
+    # pdfplumber.PDF has no is_encrypted attribute to check up front --
+    # password-protected/corrupted PDFs simply raise when opened or read,
+    # which the except below already converts into an ExtractionError.
     try:
         with pdfplumber.open(file_path) as pdf:
-            if pdf.is_encrypted:
-                raise ExtractionError("password-protected PDF")
             parts = []
             for page in pdf.pages:
                 page_text = page.extract_text()
                 if page_text:
                     parts.append(page_text)
     except Exception as e:
-        if isinstance(e, ExtractionError):
-            raise
         raise ExtractionError(f"failed to open/parse PDF: {e}") from e
 
     text = "\n".join(parts)
