@@ -78,6 +78,7 @@ def approve(hash_):
         f"resolved: {hash_} by operator, action=approve",
         [str(target_path), str(review_path)],
     )
+    git_ops.push(REPO_ROOT)
 
     with db.connect(DB_PATH) as conn:
         db.mark_review_resolution(conn, hash_, "approved")
@@ -97,6 +98,7 @@ def reject(hash_):
         f"resolved: {hash_} by operator, action=reject",
         [str(review_path)],
     )
+    git_ops.push(REPO_ROOT)
     print(f"rejected: {hash_}")
 
 

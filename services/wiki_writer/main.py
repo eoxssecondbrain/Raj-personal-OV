@@ -100,14 +100,22 @@ def apply_write(target_page_rel, draft_content):
 
 
 def process_entry(raw_row, conn):
+    """Writes the decided content and marks wikified_at immediately -- no git
+    call here. A git failure must never prevent mark_wikified from running,
+    since the content write is what actually matters; git commit/push for the
+    whole batch happens once in run(), after every entry in the batch has
+    already been written and marked (see run() below and the git_ops.push
+    retry-until-success pattern shared with ingestion).
+
+    Returns the path written (str), for run() to batch into one commit.
+    """
     hash_ = raw_row["hash"]
 
     if raw_row["extraction_status"] == "failed":
         review_path = write_extraction_failure_review(raw_row)
-        git_ops.commit(REPO_ROOT, f"flag: extraction failure for {raw_row['source_filename']}", [str(review_path)])
         db.mark_wikified(conn, hash_, datetime.now(timezone.utc).isoformat(), [str(review_path)])
         log.info("flagged extraction failure: %s", raw_row["source_filename"])
-        return
+        return str(review_path)
 
     raw_content = json.loads(Path(raw_row["raw_path"]).read_text(encoding="utf-8"))["content"] or ""
     candidates = decision.find_candidate_pages(VAULT_DIR, raw_row["source_filename"], raw_content)
@@ -125,19 +133,18 @@ def process_entry(raw_row, conn):
                 "---\n\n" + content
             )
         target_path = apply_write(result["target_page"], content)
-        git_ops.commit(
-            REPO_ROOT,
-            f"{result['outcome'].lower()}: {result['target_page']} from {raw_row['source_filename']}",
-            [str(target_path)],
-        )
-        db.mark_wikified(conn, hash_, now, [result["target_page"]])
+        # target_pages stores the absolute written path (not the vault-relative
+        # display path) so get_unpushed_wiki_writes() can reconstruct exactly
+        # what to `git add` on a later retry.
+        db.mark_wikified(conn, hash_, now, [str(target_path)])
         log.info("%s -> %s", result["outcome"], result["target_page"])
+        return str(target_path)
 
     else:  # NEEDS_REVIEW
         review_path = write_needs_review(raw_row, result)
-        git_ops.commit(REPO_ROOT, f"flag: needs review for {raw_row['source_filename']}", [str(review_path)])
-        db.mark_wikified(conn, hash_, now, [str(review_path.relative_to(REPO_ROOT))])
+        db.mark_wikified(conn, hash_, now, [str(review_path)])
         log.info("NEEDS_REVIEW -> %s", review_path.name)
+        return str(review_path)
 
 
 def run():
@@ -165,15 +172,31 @@ def run():
                     except Exception:
                         log.exception("failed to process entry %s, leaving for next run", row["hash"])
 
-                if processed and GIT_REMOTE_URL:
+                # Query (not just this run's writes) so this also retries any
+                # entries from a prior run whose commit/push failed -- same
+                # stranding bug ingestion had, and the reason wikified_at no
+                # longer implies "reached GitHub."
+                pending = db.get_unpushed_wiki_writes(conn, limit=MAX_ITEMS_PER_RUN * 5)
+                if pending and GIT_REMOTE_URL:
+                    paths = [json.loads(row["target_pages"])[0] for row in pending]
                     try:
-                        git_ops.push(REPO_ROOT)
-                        log.info("pushed %d commit(s) to remote", processed)
+                        committed = git_ops.commit(
+                            REPO_ROOT,
+                            f"wiki_writer: {len(paths)} entries",
+                            paths,
+                        )
+                        if committed:
+                            git_ops.push(REPO_ROOT)
+                        db.mark_wiki_git_pushed(
+                            conn, [row["hash"] for row in pending],
+                            datetime.now(timezone.utc).isoformat(),
+                        )
+                        log.info("committed + pushed %d wiki write(s) to remote", len(paths))
                     except Exception:
-                        # Local commits already succeeded -- they're the real audit
-                        # trail. A push failure shouldn't fail the whole run; the
-                        # next successful run's push will catch up on the backlog.
-                        log.exception("push to remote failed, will retry next run")
+                        # Local writes + mark_wikified already succeeded --
+                        # wiki_git_pushed_at stays NULL so the next run retries
+                        # just the git step, same pattern as ingestion.
+                        log.exception("commit/push of vault/ writes failed, will retry next run")
         except lock.LockHeldError as e:
             status = "skipped"
             detail = str(e)

@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS raw_files (
     wikified_at TIMESTAMP,                               -- NULL until wiki_writer processes it
     target_pages TEXT,                                   -- JSON array of vault paths it fed into
     review_resolution TEXT,                               -- NULL | rejected | approved (set by resolve.py)
-    git_pushed_at TIMESTAMP                               -- NULL until raw/<hash>.json reached GitHub
+    git_pushed_at TIMESTAMP,                              -- NULL until raw/<hash>.json reached GitHub
+    wiki_git_pushed_at TIMESTAMP                          -- NULL until wiki_writer's vault/_needs-review write reached GitHub
 );
 
 CREATE TABLE IF NOT EXISTS locks (
@@ -58,6 +59,7 @@ def init_db(db_path):
         # so the column has to be added explicitly for pre-existing state.db
         # files. Existing rows get NULL, which correctly means "needs retry."
         _ensure_column(conn, "raw_files", "git_pushed_at", "TIMESTAMP")
+        _ensure_column(conn, "raw_files", "wiki_git_pushed_at", "TIMESTAMP")
         conn.commit()
     finally:
         conn.close()
@@ -183,6 +185,36 @@ def mark_wikified(conn, hash_, wikified_at, target_pages):
     conn.execute(
         "UPDATE raw_files SET wikified_at = ?, target_pages = ? WHERE hash = ?",
         (wikified_at, json.dumps(target_pages), hash_),
+    )
+    conn.commit()
+
+
+def get_unpushed_wiki_writes(conn, limit):
+    """Entries wiki_writer has already written to vault/ (target_pages set)
+    but whose commit/push hasn't succeeded yet -- either brand new from this
+    run, or stranded by a prior git failure. Mirrors get_unpushed_raw_files:
+    decoupled from wikified_at so a git failure never permanently strands a
+    vault write the way the pre-fix code did (see the flagged-but-never-
+    committed _needs-review file this replaced)."""
+    rows = conn.execute(
+        """
+        SELECT * FROM raw_files
+        WHERE wikified_at IS NOT NULL AND wiki_git_pushed_at IS NULL
+        ORDER BY wikified_at ASC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    return rows
+
+
+def mark_wiki_git_pushed(conn, hashes, pushed_at):
+    if not hashes:
+        return
+    placeholders = ",".join("?" * len(hashes))
+    conn.execute(
+        f"UPDATE raw_files SET wiki_git_pushed_at = ? WHERE hash IN ({placeholders})",
+        (pushed_at, *hashes),
     )
     conn.commit()
 
